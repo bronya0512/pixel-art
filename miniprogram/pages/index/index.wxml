@@ -1,0 +1,29 @@
+<view class="container">
+  <view class="title">图片转像素画</view>
+  <view class="subtitle">上传图片，自动生成像素画</view>
+
+  <button class="btn ghost" bindtap="chooseImage">选择图片</button>
+
+  <image wx:if="{{src}}" src="{{src}}" mode="widthFix" class="preview" show-menu-by-longpress />
+
+  <view class="params">
+    <view class="param">
+      <text>像素块大小</text>
+      <slider min="2" max="64" value="{{size}}" bindchange="onSizeChange" activeColor="#7c5cff" block-size="20" />
+      <text class="val">{{size}} px</text>
+    </view>
+    <view class="param">
+      <text>调色板颜色数</text>
+      <slider min="0" max="256" value="{{colors}}" bindchange="onColorsChange" activeColor="#7c5cff" block-size="20" />
+      <text class="val">{{colors}} 色</text>
+    </view>
+  </view>
+
+  <button wx:if="{{src}}" class="btn primary" bindtap="convert" disabled="{{loading}}">
+    {{loading ? '生成中...' : '生成像素画'}}
+  </button>
+
+  <view wx:if="{{loading}}" class="loading">正在生成，请稍候...</view>
+
+  <image wx:if="{{result}}" src="{{result}}" mode="widthFix" class="preview result" show-menu-by-longpress />
+</view>

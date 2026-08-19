@@ -1,0 +1,5 @@
+.git
+.gitignore
+*.exe
+pixel-art-server
+pixel-art-server-linux

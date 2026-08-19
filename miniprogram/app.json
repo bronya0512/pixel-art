@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "pages/index/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "图片转像素画",
+    "navigationBarBackgroundColor": "#14121f",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#14121f"
+  },
+  "sitemapLocation": "sitemap.json"
+}
