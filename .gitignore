@@ -4,6 +4,9 @@
 pixel-art-server-linux
 pixel-art-server
 
+# 环境变量（含密钥，禁止提交）
+.env
+
 # 运行时生成的像素画输出目录
 output/
 

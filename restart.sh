@@ -4,6 +4,13 @@ set -e
 
 cd "$(dirname "$0")"
 
+# 读取密钥：优先从 .env 文件（不提交 git），其次用当前 shell 环境变量
+if [ -f .env ]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
 echo "==> [1/3] 拉取最新代码..."
 git pull
 
@@ -12,7 +19,9 @@ docker build -t pixel-art .
 
 echo "==> [3/3] 重启容器..."
 docker rm -f pixel-art >/dev/null 2>&1 || true
-docker run -d --name pixel-art --restart=always -p 8080:8080 pixel-art
+docker run -d --name pixel-art --restart=always -p 8080:8080 \
+  -e CHAT_API_KEY="${CHAT_API_KEY}" \
+  pixel-art
 
 echo ""
 echo "==> 部署完成！"
