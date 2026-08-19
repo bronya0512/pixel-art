@@ -1,5 +1,6 @@
 # 编译产物
 *.exe
+*.exe~
 pixel-art-server-linux
 pixel-art-server
 

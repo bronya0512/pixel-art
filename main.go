@@ -11,6 +11,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"embed"
@@ -29,7 +30,7 @@ import (
 	"time"
 )
 
-//go:embed static/index.html
+//go:embed static
 var staticFS embed.FS
 
 const (
@@ -37,6 +38,9 @@ const (
 	scriptName = "pixelate.py"
 	maxUpload  = 20 << 20 // 20MB
 	outputDir  = "output"  // 像素画持久化保存目录
+
+	chatAPIURL = "https://tokenhub.tencentmaas.com/v1/chat/completions"
+	chatModel  = "hy3"
 )
 
 // pythonCandidates 按顺序尝试可用的 Python 解释器。
@@ -50,8 +54,10 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleIndex)
+	mux.HandleFunc("/chat", handleChatPage)
 	mux.HandleFunc("/api/pixelate", handlePixelate)
 	mux.HandleFunc("/api/pixelate-json", handlePixelateJSON)
+	mux.HandleFunc("/api/chat", handleChatAPI)
 	// 静态文件服务：/files/xxx.png 访问 outputDir 下的文件
 	mux.Handle("/files/", http.StripPrefix("/files/", http.FileServer(http.Dir(outputDir))))
 
@@ -74,6 +80,113 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(data)
+}
+
+// handleChatPage 返回聊天页面。
+func handleChatPage(w http.ResponseWriter, r *http.Request) {
+	data, err := staticFS.ReadFile("static/chat.html")
+	if err != nil {
+		http.Error(w, "无法加载聊天页面", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(data)
+}
+
+// chatMessage 是 OpenAI 兼容接口的消息结构。
+type chatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// chatAPIKey 从环境变量读取，避免把密钥硬编码进代码仓库。
+func chatAPIKey() string {
+	return strings.TrimSpace(os.Getenv("CHAT_API_KEY"))
+}
+
+// handleChatAPI 将聊天请求转发到腾讯云大模型，并以 SSE 流式返回。
+func handleChatAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "仅支持 POST", http.StatusMethodNotAllowed)
+		return
+	}
+
+	key := chatAPIKey()
+	if key == "" {
+		http.Error(w, "服务端未配置 CHAT_API_KEY 环境变量", http.StatusInternalServerError)
+		return
+	}
+
+	var req struct {
+		Messages []chatMessage `json:"messages"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求解析失败: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(req.Messages) == 0 {
+		http.Error(w, "messages 不能为空", http.StatusBadRequest)
+		return
+	}
+
+	payload := map[string]any{
+		"model":      chatModel,
+		"messages":   req.Messages,
+		"stream":     true,
+		"max_tokens": 1024,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		http.Error(w, "请求构造失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	upstream, err := http.NewRequest(http.MethodPost, chatAPIURL, bytes.NewReader(body))
+	if err != nil {
+		http.Error(w, "创建上游请求失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	upstream.Header.Set("Content-Type", "application/json")
+	upstream.Header.Set("Authorization", "Bearer "+key)
+
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Do(upstream)
+	if err != nil {
+		http.Error(w, "调用大模型失败: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		http.Error(w, fmt.Sprintf("上游返回 %d: %s", resp.StatusCode, string(msg)), http.StatusBadGateway)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "不支持流式响应", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if _, err := fmt.Fprintf(w, "%s\n", line); err != nil {
+			return
+		}
+		flusher.Flush()
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("读取上游流失败: %v", err)
+	}
 }
 
 // jsonResponse 是 JSON 接口的统一返回结构。
